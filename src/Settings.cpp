@@ -3,38 +3,41 @@
 #include "Communications.h"
 #include "RFID.h"
 
-//Constants
-#define EEPROM_SIZE 12
+extern char reporterTopic[];
 
 ESP8266WebServer server(80);    // Create a webserver object that listens for HTTP request on port 80
 
 void  initSettings()
 {
-  EEPROM.begin(EEPROM_SIZE);
+  if (!LittleFS.begin())
+  {
+    Serial.println("LittleFS mount failed");
+  }
   loadSettings();
 }
 
 void  loadSettings()
 {
-  // Loads the settings from EEPROM/Flash
-  EEPROM.get(0, lNodeID);
-  EEPROM.get(4,settingsChecksum);
-
-#ifdef WemosTest
-  Serial.println("EEPROM");
-  Serial.print("TransponderBlockID:");
-  Serial.println(lNodeID,HEX);
-  Serial.print("checksum:");
-  Serial.println(settingsChecksum,HEX);  
-#endif
-
-  if(settingsChecksum != (lNodeID+1))
+  // Load lNodeID from LittleFS; create default file if absent
+  File nodeFile = LittleFS.open("/nodeID.txt", "r");
+  if (!nodeFile)
   {
-    // Bad checksum - restore defaults
+    // File does not exist - write default
     lNodeID = 0;
     saveSettings();
     #ifdef WemosTest
-       Serial.println("Bad Checksum - restoring defaults");
+      Serial.println("nodeID.txt not found - created default (0)");
+    #endif
+  }
+  else
+  {
+    String val = nodeFile.readStringUntil('\n');
+    val.trim();
+    nodeFile.close();
+    lNodeID = (int)strtol(val.c_str(), NULL, 16);
+    #ifdef WemosTest
+      Serial.print("NodeID loaded: ");
+      Serial.println(lNodeID, HEX);
     #endif
   }
   setWifiNodeID(lNodeID);
@@ -42,12 +45,17 @@ void  loadSettings()
 
 void  saveSettings()
 {
-  //Saves the settings to EEPROM/Flash
-  EEPROM.put(0, lNodeID);
-  // calculate the checksum
-  settingsChecksum = lNodeID+1;
-  EEPROM.put(4, settingsChecksum);
-  EEPROM.commit();
+  // Save lNodeID to LittleFS as a hex string
+  File nodeFile = LittleFS.open("/nodeID.txt", "w");
+  if (nodeFile)
+  {
+    nodeFile.println(toHex(lNodeID));
+    nodeFile.close();
+  }
+  else
+  {
+    Serial.println("Failed to write nodeID.txt");
+  }
 }
 
 void startWebServer(void)
@@ -188,6 +196,6 @@ void setReporterBlockID(int block)
     rBlockID[1]= block % 16 + 0x30;
     if(rBlockID[1] > 57)rBlockID[1]+=7;
 
-    reporterTopic[16] = rBlockID[0];
-    reporterTopic[17] = rBlockID[1];
+    reporterTopic[17] = rBlockID[0];
+    reporterTopic[18] = rBlockID[1];
 }

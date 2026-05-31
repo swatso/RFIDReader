@@ -1,33 +1,28 @@
 // This module handles MQTT data transfers via wifi
 // A priary and secondary network are defined.
 // If the device fails to connect to the primary network after 30 seconds, it tries the secondary network and so forth
-
+#include "Arduino.h"
 #include "Communications.h"
 #include "Settings.h"
 
 #include <string>
+#include <LittleFS.h>
+#define WemosTest 
 
 // Forward declarations for internal functions
 boolean connectToWifi();
 boolean connectClient();
-boolean subscribeTopics();
+//boolean subscribeTopics();
 boolean MQTTPublishNext();
 boolean serviceConnection();
+boolean loadCommsSettings();
+boolean readSettingFile(const char* path, char* target, size_t targetLen);
 
-//const char* mqtt_server = "mqttserver";
-const char* mqtt_server = "192.168.0.184";
-const char* ssid0 = "WLR1";
-const char* pswd0 = "RailwayModel";
-
-const char* ssid1 = "WLR2";
-const char* pswd1 = "RailwayModel";
-
-const char* ssid2 = "VM7320635";
-const char* pswd2 = "kfcr7fsXxcs8";
+char ssid0[64] = "";
+char pswd0[64] = "";
 
 boolean useMqtt1 = true;
-const char* mqtt1 = "192.168.0.1";          // Shed network
-const char* mqtt2 = "192.168.0.184";        // Garage network
+char mqtt1[64] = "";
 
 // background publishing of topics is just a safety net in case MQTT events get missed
 // it is intended to eventually pull everything back into sync over a minute or so....
@@ -35,9 +30,7 @@ const char* mqtt2 = "192.168.0.184";        // Garage network
 #define BACKGROUNDPUBLISHRATE 4000
 
 char* hostName = "node00";
-char* sensorTopic = "iot/io/sensor/nn00";
-char* turnoutTopic = "iot/io/turnout/nn00";
-char* reporterTopic = "iot/io/reporter/nn00";
+char* reporterTopic = "track/reporter/nn00";
 
 String payloadTrue = "ACTIVE";
 String payloadFalse = "INACTIVE";
@@ -60,19 +53,86 @@ byte commsState;                                   // state machine starting sta
 void initComms() 
 {
   commsState = COMMS_WIFI_DISCONNECTED;                // state machine starting state
+  loadCommsSettings();
   client.setBufferSize(512);
   client.setServer(mqtt1, 1883);
-  client.setCallback(callback);
   nextTopicToPublish = 0;
-  wifiMulti.addAP(ssid0, pswd0);       // add Wi-Fi networks you want to connect to
-  wifiMulti.addAP(ssid1, pswd1);       // add Wi-Fi networks you want to connect to
-  #ifdef WemosTest
-//  wifiMulti.addAP(ssid2, pswd2);       // add Wi-Fi networks you want to connect to
-  #endif
+  if ((ssid0[0] != '\0') && (pswd0[0] != '\0'))
+  {
+    wifiMulti.addAP(ssid0, pswd0);       // add Wi-Fi networks you want to connect to
+  }
+  else
+  {
+    Serial.println("WiFi settings missing in /ssid.txt or /pass.txt");
+  }
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   nodeID = 0;
+}
+
+boolean loadCommsSettings()
+{
+  if (!LittleFS.begin())
+  {
+    Serial.println("LittleFS mount failed");
+    return(false);
+  }
+
+  boolean brokerLoaded = readSettingFile("/Broker.txt", mqtt1, sizeof(mqtt1));
+  if (!brokerLoaded) brokerLoaded = readSettingFile("/broker.txt", mqtt1, sizeof(mqtt1));
+
+  boolean ssidLoaded = readSettingFile("/ssid.txt", ssid0, sizeof(ssid0));
+  if (!ssidLoaded) ssidLoaded = readSettingFile("/SSID.txt", ssid0, sizeof(ssid0));
+
+  boolean passLoaded = readSettingFile("/pass.txt", pswd0, sizeof(pswd0));
+  if (!passLoaded) passLoaded = readSettingFile("/Pass.txt", pswd0, sizeof(pswd0));
+
+  if (!brokerLoaded)
+  {
+    Serial.println("Missing or empty /Broker.txt");
+  }
+  if (!ssidLoaded)
+  {
+    Serial.println("Missing or empty /ssid.txt");
+  }
+  if (!passLoaded)
+  {
+    Serial.println("Missing or empty /pass.txt");
+  }
+
+  Serial.print("MQTT Broker:");
+  Serial.println(mqtt1);
+  Serial.print("SSID:");
+  Serial.println(ssid0);
+
+  return(brokerLoaded && ssidLoaded && passLoaded);
+}
+
+
+
+boolean readSettingFile(const char* path, char* target, size_t targetLen)
+{
+  target[0] = '\0';
+  File settingFile = LittleFS.open(path, "r");
+  if (!settingFile)
+  {
+    Serial.print("Failed to open setting file:");
+    Serial.println(path);
+    return(false);
+  }
+
+  String value = settingFile.readStringUntil('\n');
+  value.trim();
+  settingFile.close();
+
+  if (value.length() == 0)
+  {
+    return(false);
+  }
+
+  value.toCharArray(target, targetLen);
+  return(target[0] != '\0');
 }
 
 void  manageComms()
@@ -138,7 +198,8 @@ Serial.print(".");
     case COMMS_CLIENT_CONNECTED:
       if(wifiMulti.run() == WL_CONNECTED)
       {
-        if(subscribeTopics()==true)commsState = COMMS_LIVE;
+//        if(subscribeTopics()==true)commsState = COMMS_LIVE;
+        commsState = COMMS_LIVE;
         MDNS.update();
         runWebServer();
       }
@@ -148,7 +209,6 @@ Serial.print(".");
       if(wifiMulti.run() == WL_CONNECTED)
       {
         if(serviceConnection() != true)commsState = COMMS_WIFI_CONNECTED;
-        if(MQTTPublishNext() != true)commsState = COMMS_WIFI_CONNECTED;
         MDNS.update();
         runWebServer();
       }
@@ -163,11 +223,6 @@ boolean connectToWifi()
     
   if(wifiMulti.run() == WL_CONNECTED)
   {
-    // Build the basic subscription strings by inserting the node ID
-    turnoutTopic[15]=ID[0];
-    turnoutTopic[16]=ID[1];  
-    sensorTopic[14]=ID[0];
-    sensorTopic[15]=ID[1];
     return(true);
   }
   else return(false);
@@ -196,99 +251,18 @@ boolean connectClient()
     {
 #ifdef WemosTest
       Serial.print("Connected to MQTT Broker at: ");
-      if(useMqtt1==true)Serial.println(mqtt1);
-      else Serial.println(mqtt2);
+      Serial.println(mqtt1);
 #endif
       MQTTConnectionTime = millis();
       return(true);     // Connected
     }
     else
     {
-      // Failed to connect to MQTT server.
-      // There are different IP addresses for the two potential networks (Garage and Shed)
-      // Ideally would use MDNS to resolve using a common hostname, bit there is a known issue
-      // in pubsub client not resolving MDNS hostname so the compromise is to declare two fixed IP
-      // addresses and find the one that works.....
-      if(useMqtt1 == true)
-      {
-        client.setServer(mqtt2, 1883);
-        useMqtt1= false;
-      }
-      else
-      {
-        client.setServer(mqtt1, 1883);
-        useMqtt1= true;
-      }      
+      // Failed to connect to MQTT server.    
       return(false);    // Not yet connected
     }
   } 
   return(true);         // already connected
-}
-
-
-
-
-boolean  subscribeTopics()
-{
-  //Serial.println("<subscribe>");
-  // ******************************************
-  return(true);       // No topics to subscribe for the RFID Node
-  //*******************************************
-
-  
-  // subscribe to the 16 (turnOut) topics
-  std::string subscription;
-  byte i;
-  for(i=0; i<16; i++)
-  {
-    // We are subscribing to turnout topics 00 to 0F hex
-    turnoutTopic[17]= 0x30;
-    turnoutTopic[18]= i + 0x30;
-    if(turnoutTopic[18] > 57)turnoutTopic[18]+=7;
-
-    subscription.assign(turnoutTopic,19);
-    client.subscribe(subscription.c_str());
-    delay(1);
-    serviceConnection();
-    yield();
-  }
-  return(true);
-}
-
-
-
-boolean MQTTPublishNext()
-{
-  //**************************************************
-  return(true);        // no background topics to publish for RFID node
-  //**************************************************
-}
-
-boolean publishBit(byte bitNo)
-{
-   if (client.connected())
-   {
-    // publishes the specified bit (0 to 15) on the appropriate Sensor Topic
-    // build the sensor topic number in the range 00 to 0F hex
-    sensorTopic[16]=0x30;
-    sensorTopic[17]= bitNo + 0x30;
-    if(sensorTopic[17] > 57)sensorTopic[17]+=7;
-
-    if(bitNo < 8)
-    {
-     // bit is in nodeS0
-     if(bitRead(nodeS0,bitNo)==true)client.publish( sensorTopic , (char*) payloadTrue.c_str(), true );
-     else client.publish( sensorTopic , (char*) payloadFalse.c_str(), true );
-    }
-    else
-    {
-     // bit is in nodeS1
-     if(bitRead(nodeS1,bitNo-8)==true)client.publish( sensorTopic , (char*) payloadTrue.c_str(), true );
-     else client.publish( sensorTopic , (char*) payloadFalse.c_str(), true );
-    }
-   }
-yield();
-   return(true);
 }
 
 
@@ -297,8 +271,8 @@ boolean publishReporter(byte *message)
    if (client.connected())
    {
      // publishes the specified message on reporter Topic 00
-     reporterTopic[18]=0x30;
-     reporterTopic[19]= 0x30;
+     reporterTopic[19]=0x30;
+     reporterTopic[20]=0x30;
      client.publish( reporterTopic , (char*)message, true );      
    }
    return(true);
@@ -322,31 +296,6 @@ boolean serviceConnection()
 }
 
 
-
-void callback(char* topic, byte* payload, unsigned int length) 
-{
-  // Called when one of the subscribed topics is recieved
-  // ie a Turnout has changed in value...
-  // Toggle bits in C0 and C1
-  // Event will be defined by topic[17] and topic[18] in the range 00 to 0F hex
-  byte event = (topic[18]-0x30);
-  if (event > 9)event -= 7;
-
-  if(event < 8)
-  {
-    if ((char)payload[0] == 'T')bitWrite(nodeC0,event,true);
-    else bitWrite(nodeC0,event,false); 
-  }
-  else
-  {
-    event = event - 8;
-    if ((char)payload[0] == 'T')bitWrite(nodeC1,event,true);
-    else bitWrite(nodeC1,event,false);     
-  }
-}
-
-
-
 void setWifiNodeID(byte currentNodeID)
 {
   // Set the Wifi NodeID to the currentNodeID
@@ -361,10 +310,10 @@ void setWifiNodeID(byte currentNodeID)
     if(ID[1] > 57)ID[1]+=7;
 
     // Build the basic subscription strings by inserting the node ID
-    turnoutTopic[15]=ID[0];
-    turnoutTopic[16]=ID[1];  
-    sensorTopic[14]=ID[0];
-    sensorTopic[15]=ID[1];
+    //turnoutTopic[15]=ID[0];
+    //turnoutTopic[16]=ID[1];  
+    //sensorTopic[14]=ID[0];
+    //sensorTopic[15]=ID[1];
   }
 }
 
@@ -414,10 +363,5 @@ int getRSSI()
 
 String getMQTTAddress()
 {
-  if(checkMQTTState()==true)
-  {
-    if(useMqtt1 == true)return(mqtt1);
-    return(mqtt2);
-  }
-  else return("Not Connected");
+  return(mqtt1);
 }

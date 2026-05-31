@@ -15,7 +15,7 @@
 #include "RFID.h"
 #include "Communications.h"
 
-SoftwareSerial swSer(14, 12, false, 256);
+SoftwareSerial swSer(14, 12);
 byte  RFIDData[8];
 byte  RFIDState;
 byte  RFIDByteCnt;

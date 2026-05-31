@@ -8,7 +8,7 @@
 //  logic;  creating a web page, initially http://node0.local it should be
 //  configured to occupy a spare node address on the layout
 
-//#define WemosTest                         // Build for Wemos D1 mini (retired) with Serial debug
+#define WemosTest                         // Build for Wemos D1 mini (retired) with Serial debug
 
 #include <Wire.h>
 #include <Ticker.h>
@@ -34,9 +34,8 @@ byte nodeS1;            // Published copy of S1
 byte S0;                // I2C recieved value of S0
 byte S1;                // I2C reveived value of S1
 
-// Settings from EEPROM
+// Settings
 int lNodeID = 0;
-int settingsChecksum;
 
 // Wifi Connection Stats
 unsigned long wifiConnectionTime;
@@ -50,12 +49,14 @@ unsigned long now;
 
 void setup() 
 {
+  Serial.begin(115200);
+  delay(100);
   initSettings();
   initComms();
   initRFID();
   I2CReadPoll = I2C_READ_RATE;
   I2CWritePoll = I2C_WRITE_RATE;
-  Serial.begin(115200);
+
   Serial.println(Version);
   now = millis();
 }
