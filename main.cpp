@@ -10,18 +10,11 @@
 
 //#define WemosTest                         // Build for Wemos D1 mini (retired) with Serial debug
 
-#define Version "RFIDReader v30.12.2023"
-  // Initial versionbasedon the WIFI2C source code
-  
 #include <Wire.h>
-#include <ESP8266WiFi.h>
-#include <PubSubClient.h>
-#include <ESP8266mDNS.h>
-#include <ESP8266WebServer.h>
-#include <ESP8266HTTPUpdateServer.h>
-#include <WiFiClient.h>
-#include <ESP8266WiFiMulti.h> 
 #include <Ticker.h>
+#include "Settings.h"
+#include "Communications.h"
+#include "RFID.h"
 
 // Polling ratesin multiples of 10mS
 #define I2C_READ_RATE     2

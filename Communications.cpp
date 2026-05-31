@@ -2,7 +2,17 @@
 // A priary and secondary network are defined.
 // If the device fails to connect to the primary network after 30 seconds, it tries the secondary network and so forth
 
+#include "Communications.h"
+#include "Settings.h"
+
 #include <string>
+
+// Forward declarations for internal functions
+boolean connectToWifi();
+boolean connectClient();
+boolean subscribeTopics();
+boolean MQTTPublishNext();
+boolean serviceConnection();
 
 //const char* mqtt_server = "mqttserver";
 const char* mqtt_server = "192.168.0.184";
