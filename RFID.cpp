@@ -12,7 +12,8 @@
 //    Of the 14 bytes of data, I regard the last 8 of being useful for unique identification
 //    So it is these 8 byteswhich are captured for onward transmission via MQTT
 
-#include <SoftwareSerial.h>
+#include "RFID.h"
+#include "Communications.h"
 
 SoftwareSerial swSer(14, 12, false, 256);
 byte  RFIDData[8];

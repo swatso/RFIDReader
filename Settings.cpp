@@ -1,14 +1,12 @@
 
-#include <EEPROM.h>
+#include "Settings.h"
+#include "Communications.h"
+#include "RFID.h"
 
 //Constants
 #define EEPROM_SIZE 12
-  
-ESP8266WebServer server(80);    // Create a webserver object that listens for HTTP request on port 80
 
-void handleRoot();              // function prototypes for HTTP handlers
-void handleSettings();
-void handleNotFound();
+ESP8266WebServer server(80);    // Create a webserver object that listens for HTTP request on port 80
 
 void  initSettings()
 {
